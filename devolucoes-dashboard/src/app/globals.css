@@ -1,0 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── CSS Variables / Design Tokens ─────────────────────────────────────── */
+:root {
+  --bg-primary: #0a0d14;
+  --bg-surface: #111827;
+  --bg-card: #151c2c;
+  --bg-card-hover: #1a2235;
+  --border: #1e2a3d;
+  --border-bright: #2d3f5c;
+  --text-primary: #e2e8f0;
+  --text-secondary: #8899a6;
+  --text-muted: #4a5568;
+  --accent: #38bdf8;
+  --accent-dim: rgba(56, 189, 248, 0.12);
+  --accent-glow: rgba(56, 189, 248, 0.25);
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --radius: 10px;
+}
+
+/* ─── Base ───────────────────────────────────────────────────────────────── */
+html { scroll-behavior: smooth; }
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+/* Subtle grid background */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(56, 189, 248, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 189, 248, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-primary); }
+::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+/* ─── Components ─────────────────────────────────────────────────────────── */
+@layer components {
+  .card {
+    @apply rounded-xl border bg-[#151c2c] border-[#1e2a3d];
+    backdrop-filter: blur(8px);
+  }
+
+  .card-hover {
+    @apply transition-all duration-200;
+  }
+  .card-hover:hover {
+    border-color: var(--border-bright);
+    background-color: var(--bg-card-hover);
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
+    bg-sky-500 hover:bg-sky-400 text-white transition-all duration-150
+    disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
+    bg-[#1e2a3d] hover:bg-[#263344] border border-[#2a3a52] text-slate-300
+    transition-all duration-150;
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
+    bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400
+    transition-all duration-150;
+  }
+
+  .input {
+    @apply w-full px-3 py-2 rounded-lg text-sm
+    bg-[#0f1520] border border-[#1e2a3d] text-slate-200
+    placeholder:text-slate-600
+    focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/30
+    transition-all duration-150;
+  }
+
+  .label {
+    @apply block text-xs font-medium text-slate-400 mb-1.5;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-ok {
+    @apply badge bg-emerald-500/10 text-emerald-400 border border-emerald-500/20;
+  }
+
+  .badge-problema {
+    @apply badge bg-red-500/10 text-red-400 border border-red-500/20;
+  }
+
+  .badge-pendente {
+    @apply badge bg-amber-500/10 text-amber-400 border border-amber-500/20;
+  }
+}
+
+/* ─── Animations ─────────────────────────────────────────────────────────── */
+@layer utilities {
+  .animate-in {
+    animation: fadeUp 0.35s ease-out both;
+  }
+
+  .stagger-1 { animation-delay: 0.05s; }
+  .stagger-2 { animation-delay: 0.10s; }
+  .stagger-3 { animation-delay: 0.15s; }
+  .stagger-4 { animation-delay: 0.20s; }
+  .stagger-5 { animation-delay: 0.25s; }
+
+  .shimmer-bg {
+    background: linear-gradient(
+      90deg,
+      #151c2c 25%,
+      #1e2a3d 50%,
+      #151c2c 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  .glow-accent {
+    box-shadow: 0 0 20px var(--accent-glow);
+  }
+}
