@@ -1,17 +1,27 @@
 /**
- * Google Sheets API v4 Client
- * Responsabilidade: autenticação via Service Account e operações CRUD na planilha.
- * Separation of Concerns: este módulo não conhece lógica de negócio ou HTTP.
+ * Google Sheets API v4 Client - Versão Corrigida para Vercel
+ * Projeto: Dashboard de Devoluções Renault Valec
  */
 
 import { google, sheets_v4 } from 'googleapis';
 import type { Devolucao } from '@/types';
 
+// ─── Validação das Variáveis de Ambiente ─────────────────────────────────────
+// Isso garante que o código não tente rodar se a Vercel não entregar as chaves.
+const SPREADSHEET_ID = process.env.GOOGLE_SPREADSHEET_ID;
+const SHEET_NAME = process.env.GOOGLE_SHEET_NAME || 'Sheet1';
+const CLIENT_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+const PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY;
+
+if (!SPREADSHEET_ID || !CLIENT_EMAIL || !PRIVATE_KEY) {
+  console.error("❌ ERRO: Variáveis de ambiente GOOGLE_ não encontradas!");
+  console.log("Verifique se GOOGLE_SPREADSHEET_ID, GOOGLE_SERVICE_ACCOUNT_EMAIL e GOOGLE_PRIVATE_KEY estão na Vercel.");
+}
+
 // ─── Constantes de mapeamento de colunas ─────────────────────────────────────
-// Ordem das colunas conforme a planilha DEV_ML.xlsx
 const COL = {
-  DATA_CHEGADA:       0, // A
-  NOME_CLIENTE:       1, // B
+  DATA_CHEGADA:     0, // A
+  NOME_CLIENTE:     1, // B
   NUMERO_NF:          2, // C
   CODIGO_PECA_QTD:    3, // D
   DATA_DEVOLUCAO:     4, // E
@@ -19,9 +29,7 @@ const COL = {
   MOTIVO:             6, // G
 } as const;
 
-const HEADER_ROW = 1; // A primeira linha é o cabeçalho
-const SHEET_NAME = process.env.GOOGLE_SHEET_NAME ?? 'Sheet1';
-const SPREADSHEET_ID = process.env.GOOGLE_SPREADSHEET_ID!;
+const HEADER_ROW = 1; 
 
 // ─── Auth singleton ───────────────────────────────────────────────────────────
 let _sheetsClient: sheets_v4.Sheets | null = null;
@@ -29,10 +37,13 @@ let _sheetsClient: sheets_v4.Sheets | null = null;
 function getSheetsClient(): sheets_v4.Sheets {
   if (_sheetsClient) return _sheetsClient;
 
+  // Tratamento da Private Key para aceitar tanto \n quanto quebras reais
+  const formattedKey = PRIVATE_KEY?.replace(/\\n/g, '\n');
+
   const auth = new google.auth.GoogleAuth({
     credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      client_email: CLIENT_EMAIL,
+      private_key: formattedKey,
     },
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
@@ -44,7 +55,6 @@ function getSheetsClient(): sheets_v4.Sheets {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function rowToRange(rowIndex: number): string {
-  // rowIndex é 1-based (excluindo header), linha real na planilha = rowIndex + HEADER_ROW
   const sheetRow = rowIndex + HEADER_ROW;
   return `${SHEET_NAME}!A${sheetRow}:G${sheetRow}`;
 }
@@ -52,57 +62,51 @@ function rowToRange(rowIndex: number): string {
 function rawRowToDevolucao(row: string[], rowIndex: number): Devolucao {
   return {
     rowIndex,
-    dataChegada:      row[COL.DATA_CHEGADA]    ?? '',
-    nomeCliente:      row[COL.NOME_CLIENTE]    ?? '',
-    numeroNF:         row[COL.NUMERO_NF]       ?? '',
-    codigoPecaQtd:    row[COL.CODIGO_PECA_QTD] ?? '',
-    dataDevolucao:    row[COL.DATA_DEVOLUCAO]  ?? '',
-    numeroNFDevolucao:row[COL.NUMERO_NF_DEV]   ?? '',
-    motivo:           row[COL.MOTIVO]          ?? '',
+    dataChegada:       row[COL.DATA_CHEGADA]    ?? '',
+    nomeCliente:       row[COL.NOME_CLIENTE]    ?? '',
+    numeroNF:          row[COL.NUMERO_NF]       ?? '',
+    codigoPecaQtd:     row[COL.CODIGO_PECA_QTD] ?? '',
+    dataDevolucao:     row[COL.DATA_DEVOLUCAO]  ?? '',
+    numeroNFDevolucao: row[COL.NUMERO_NF_DEV]   ?? '',
+    motivo:            row[COL.MOTIVO]          ?? '',
   };
 }
 
 // ─── Read Operations ──────────────────────────────────────────────────────────
 
-/**
- * Busca todas as linhas de dados (excluindo o cabeçalho).
- * Usa cache: 'no-store' para garantir dados sempre frescos no Next.js.
- */
 export async function getAllDevolucoes(): Promise<Devolucao[]> {
   const sheets = getSheetsClient();
 
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!A2:G`, // começa na linha 2 para pular o header
-  });
+  try {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID!,
+      range: `${SHEET_NAME}!A2:G`, 
+    });
 
-  const rows = response.data.values ?? [];
-
-  return rows.map((row, index) =>
-    rawRowToDevolucao(row as string[], index + 1) // rowIndex 1-based
-  );
+    const rows = response.data.values ?? [];
+    return rows.map((row, index) =>
+      rawRowToDevolucao(row as string[], index + 1)
+    );
+  } catch (error) {
+    console.error("Erro ao ler planilha:", error);
+    throw new Error("Não foi possível carregar os dados da planilha.");
+  }
 }
 
 // ─── Write Operations ─────────────────────────────────────────────────────────
 
-/**
- * Appenda uma nova linha ao final da planilha.
- */
 export async function appendDevolucao(values: string[]): Promise<void> {
   const sheets = getSheetsClient();
 
   await sheets.spreadsheets.values.append({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: SPREADSHEET_ID!,
     range: `${SHEET_NAME}!A:G`,
-    valueInputOption: 'USER_ENTERED', // interpreta datas corretamente
+    valueInputOption: 'USER_ENTERED',
     insertDataOption: 'INSERT_ROWS',
     requestBody: { values: [values] },
   });
 }
 
-/**
- * Atualiza uma linha específica pelo rowIndex (1-based, sem header).
- */
 export async function updateDevolucaoRow(
   rowIndex: number,
   values: string[]
@@ -110,25 +114,18 @@ export async function updateDevolucaoRow(
   const sheets = getSheetsClient();
 
   await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: SPREADSHEET_ID!,
     range: rowToRange(rowIndex),
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [values] },
   });
 }
 
-/**
- * Busca o rowIndex de uma devolução pelo número da nota fiscal.
- * Retorna null se não encontrar.
- */
 export async function findRowByNF(numeroNF: string): Promise<Devolucao | null> {
   const all = await getAllDevolucoes();
   return all.find((d) => d.numeroNF.trim() === numeroNF.trim()) ?? null;
 }
 
-/**
- * Constrói o array de valores na ordem correta das colunas para escrita.
- */
 export function buildRowValues(d: Partial<Devolucao>): string[] {
   return [
     d.dataChegada        ?? '',
