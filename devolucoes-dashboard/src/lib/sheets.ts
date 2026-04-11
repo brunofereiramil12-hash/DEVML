@@ -46,7 +46,7 @@ function getSpreadsheetId(): string {
 function rowToRange(rowIndex: number): string {
   const sheetRow = rowIndex + 2; // rowIndex 1 → linha 3 da planilha
   const name = getSheetName();
-  return `'${name}'!C${sheetRow}:J${sheetRow}`;
+  return `'${name}'!C${sheetRow}:I${sheetRow}`;
 }
 
 // ─── Normalização de linha bruta → Devolucao ─────────────────────────────────
@@ -55,7 +55,7 @@ function rowToRange(rowIndex: number): string {
 // Solução: usar valueRenderOption=FORMATTED_VALUE + padding manual até 8 posições.
 function rawRowToDevolucao(rawRow: unknown[], rowIndex: number): Devolucao {
   // Garante que a linha sempre tem 8 posições, preenchendo com '' quando truncada
-  const row: string[] = Array.from({ length: 8 }, (_, i) => {
+  const row: string[] = Array.from({ length: 7 }, (_, i) => {
     const cell = rawRow[i];
     return typeof cell === 'string' ? cell.trim() : '';
   });
@@ -68,8 +68,7 @@ function rawRowToDevolucao(rawRow: unknown[], rowIndex: number): Devolucao {
     codigoPecaQtd:     row[3], // F
     dataDevolucao:     row[4], // G
     numeroNFDevolucao: row[5], // H
-    // row[6] = col I — vazia intencionalmente, ignorada
-    motivo:            row[7], // J
+    motivo:            row[6], // I — coluna de motivo (J está vazia na planilha)
   };
 }
 
@@ -103,7 +102,7 @@ export async function getAllDevolucoes(): Promise<Devolucao[]> {
   try {
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: getSpreadsheetId(),
-      range: `'${sheetName}'!C3:J`,
+      range: `'${sheetName}'!C3:I`,
       // FORMATTED_VALUE preserva datas como strings "dd/MM/yyyy" e não como serial numbers
       valueRenderOption: 'FORMATTED_VALUE',
     });
@@ -128,7 +127,7 @@ export async function appendDevolucao(values: string[]): Promise<void> {
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: getSpreadsheetId(),
-    range: `'${sheetName}'!C:J`,
+    range: `'${sheetName}'!C:I`,
     valueInputOption: 'USER_ENTERED',
     insertDataOption: 'INSERT_ROWS',
     requestBody: { values: [values] },
@@ -164,7 +163,6 @@ export function buildRowValues(d: Partial<Devolucao>): string[] {
     d.codigoPecaQtd      ?? '', // F (idx 3)
     d.dataDevolucao      ?? '', // G (idx 4)
     d.numeroNFDevolucao  ?? '', // H (idx 5)
-    '',                         // I (idx 6) — vazia intencionalmente
-    d.motivo             ?? '', // J (idx 7)
+    d.motivo             ?? '', // I (idx 6)
   ];
 }
