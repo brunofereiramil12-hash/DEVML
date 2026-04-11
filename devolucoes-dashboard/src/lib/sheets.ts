@@ -63,8 +63,8 @@ function getSpreadsheetId(): string {
 }
 
 function rowToRange(rowIndex: number): string {
-  const sheetRow = rowIndex + 1;
-  return `${getSheetName()}!A${sheetRow}:G${sheetRow}`;
+  const sheetRow = rowIndex + 2;
+  return `${getSheetName()}!B${sheetRow}:H${sheetRow}`;
 }
 
 function rawRowToDevolucao(row: string[], rowIndex: number): Devolucao {
@@ -85,7 +85,7 @@ export async function getAllDevolucoes(): Promise<Devolucao[]> {
   try {
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: getSpreadsheetId(),
-      range: `${getSheetName()}!A3:G`,
+      range: `${getSheetName()}!B3:H`,
     });
     const rows = response.data.values ?? [];
     return rows.map((row, index) =>
