@@ -1,67 +1,104 @@
-import { format, parseISO, isValid, startOfMonth, isWithinInterval } from 'date-fns';
+import {
+  format,
+  parseISO,
+  isValid,
+  startOfMonth,
+  endOfMonth,
+  isWithinInterval,
+  differenceInDays,
+} from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import type { Devolucao, KPIs, MotivoCount, TimelineItem, DashboardData, DevolucaoFilters, PaginatedResponse } from '@/types';
+import type {
+  Devolucao,
+  KPIs,
+  MotivoCount,
+  TimelineItem,
+  DashboardData,
+  DevolucaoFilters,
+  PaginatedResponse,
+} from '@/types';
 
-export function isMotivo(motivo: string, tipo: 'ok' | 'problema'): boolean {
-  const norm = motivo.trim().toUpperCase();
-  // Planilha usa "OK" em maiúsculas — comparação case-insensitive
-  const isOK = norm === 'OK' || norm === 'APROVADO' || norm === 'RESOLVIDO' ||
-               norm === 'CONCLUIDO' || norm === 'ACEITO' || norm === 'CONFORME';
-  return tipo === 'ok' ? isOK : !isOK;
-}
+// ─── Constantes ───────────────────────────────────────────────────────────────
+const MOTIVOS_OK = new Set([
+  'OK', 'APROVADO', 'RESOLVIDO', 'CONCLUIDO',
+  'ACEITO', 'CONFORME', 'FINALIZADO', 'ENCERRADO',
+]);
 
-function parseDate(dateStr: string): Date | null {
-  if (!dateStr || dateStr.trim() === '') return null;
-  const formats = [
-    /^(\d{2})\/(\d{2})\/(\d{4})$/,
-    /^(\d{4})-(\d{2})-(\d{2})$/,
-    /^(\d{2})-(\d{2})-(\d{4})$/,
-  ];
-  for (const regex of formats) {
-    const match = dateStr.match(regex);
-    if (match) {
-      let isoStr: string;
-      if (regex === formats[0] || regex === formats[2]) {
-        isoStr = `${match[3]}-${match[2]}-${match[1]}`;
-      } else {
-        isoStr = dateStr;
-      }
-      const d = parseISO(isoStr);
-      if (isValid(d)) return d;
-    }
+// ─── Parse de datas ───────────────────────────────────────────────────────────
+// Suporta: "dd/MM/yyyy", "yyyy-MM-dd", "dd-MM-yyyy"
+// Retorna null para strings vazias ou inválidas — nunca lança exceção.
+export function parseDate(dateStr: string | undefined | null): Date | null {
+  if (!dateStr?.trim()) return null;
+
+  const s = dateStr.trim();
+
+  // dd/MM/yyyy  ou  dd-MM-yyyy
+  const dmyMatch = s.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})$/);
+  if (dmyMatch) {
+    const iso = `${dmyMatch[3]}-${dmyMatch[2]}-${dmyMatch[1]}`;
+    const d = parseISO(iso);
+    return isValid(d) ? d : null;
   }
+
+  // yyyy-MM-dd
+  const ymdMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (ymdMatch) {
+    const d = parseISO(s);
+    return isValid(d) ? d : null;
+  }
+
   return null;
 }
 
+// ─── Data efetiva da devolução ────────────────────────────────────────────────
+// Regra de negócio: usa dataChegada quando disponível;
+// cai para dataDevolucao quando dataChegada está vazia (situação atual da planilha).
+export function getDataEfetiva(d: Devolucao): Date | null {
+  return parseDate(d.dataChegada) ?? parseDate(d.dataDevolucao);
+}
+
+// ─── Classificação de motivo ──────────────────────────────────────────────────
+export function isMotivo(motivo: string, tipo: 'ok' | 'problema'): boolean {
+  const norm = motivo.trim().toUpperCase();
+  const isOK = MOTIVOS_OK.has(norm);
+  return tipo === 'ok' ? isOK : !isOK;
+}
+
+// ─── KPIs ─────────────────────────────────────────────────────────────────────
 export function computeKPIs(devolucoes: Devolucao[]): KPIs {
   const now = new Date();
   const inicioMes = startOfMonth(now);
+  const fimMes = endOfMonth(now);
 
+  // Total no mês: usa data efetiva (chegada → devolução como fallback)
   const doMes = devolucoes.filter((d) => {
-    // Usa dataChegada; se vazia, usa dataDevolucao como fallback
-    const dt = parseDate(d.dataChegada) ?? parseDate(d.dataDevolucao);
-    return dt && isWithinInterval(dt, { start: inicioMes, end: now });
+    const dt = getDataEfetiva(d);
+    return dt !== null && isWithinInterval(dt, { start: inicioMes, end: fimMes });
   });
 
-  const comResolucao = devolucoes.filter((d) => d.dataDevolucao && d.dataDevolucao.trim() !== '');
-  const pendentes = devolucoes.length - comResolucao.length;
+  // Pendentes: sem data de devolução registrada
+  const pendentes = devolucoes.filter(
+    (d) => !d.dataDevolucao?.trim()
+  ).length;
 
-  const diasResolucao = comResolucao
+  // Média de dias: só calcula quando AMBAS as datas existem
+  const diasResolucao = devolucoes
     .map((d) => {
       const chegada = parseDate(d.dataChegada);
       const devolucao = parseDate(d.dataDevolucao);
       if (!chegada || !devolucao) return null;
-      return (devolucao.getTime() - chegada.getTime()) / (1000 * 60 * 60 * 24);
+      const diff = differenceInDays(devolucao, chegada);
+      return diff >= 0 ? diff : null; // ignora datas inconsistentes
     })
-    .filter((d): d is number => d !== null && d >= 0);
+    .filter((d): d is number => d !== null);
 
-  const avgDias =
+  const avgDiasResolucao =
     diasResolucao.length > 0
       ? Math.round(diasResolucao.reduce((a, b) => a + b, 0) / diasResolucao.length)
       : 0;
 
-  const totalOK = devolucoes.filter((d) => isMotivo(d.motivo, 'ok')).length;
   const total = devolucoes.length || 1;
+  const totalOK = devolucoes.filter((d) => isMotivo(d.motivo, 'ok')).length;
 
   return {
     totalMes: doMes.length,
@@ -69,15 +106,16 @@ export function computeKPIs(devolucoes: Devolucao[]): KPIs {
     percentualOK: Math.round((totalOK / total) * 100),
     percentualProblema: Math.round(((total - totalOK) / total) * 100),
     pendentes,
-    avgDiasResolucao: avgDias,
+    avgDiasResolucao,
   };
 }
 
+// ─── Gráfico de motivos ───────────────────────────────────────────────────────
 export function computeMotivoChart(devolucoes: Devolucao[]): MotivoCount[] {
   const countMap = new Map<string, number>();
 
   for (const d of devolucoes) {
-    const key = d.motivo.trim() || 'Nao informado';
+    const key = d.motivo.trim() || 'Não informado';
     countMap.set(key, (countMap.get(key) ?? 0) + 1);
   }
 
@@ -93,15 +131,17 @@ export function computeMotivoChart(devolucoes: Devolucao[]): MotivoCount[] {
     .slice(0, 10);
 }
 
+// ─── Timeline mensal ──────────────────────────────────────────────────────────
 export function computeTimeline(devolucoes: Devolucao[]): TimelineItem[] {
   const countMap = new Map<string, { label: string; count: number }>();
 
   for (const d of devolucoes) {
-    // Usa dataChegada; se vazia, usa dataDevolucao como fallback
-    const dt = parseDate(d.dataChegada) ?? parseDate(d.dataDevolucao);
+    const dt = getDataEfetiva(d);
     if (!dt) continue;
+
     const sortKey = format(dt, 'yyyy-MM');
     const label = format(dt, 'MMM yy', { locale: ptBR });
+
     const existing = countMap.get(sortKey);
     if (existing) {
       existing.count += 1;
@@ -116,6 +156,7 @@ export function computeTimeline(devolucoes: Devolucao[]): TimelineItem[] {
     .map(([, { label, count }]) => ({ date: label, count }));
 }
 
+// ─── Dashboard completo ───────────────────────────────────────────────────────
 export function buildDashboardData(devolucoes: Devolucao[]): DashboardData {
   return {
     kpis: computeKPIs(devolucoes),
@@ -124,18 +165,19 @@ export function buildDashboardData(devolucoes: Devolucao[]): DashboardData {
   };
 }
 
+// ─── Filtro + paginação ───────────────────────────────────────────────────────
 export function filterAndPaginate(
   devolucoes: Devolucao[],
   filters: DevolucaoFilters
 ): PaginatedResponse<Devolucao> {
-  const { search, nomeCliente, numeroNF, motivo, dataInicio, dataFim } = filters;
-  const page = filters.page ?? 1;
-  const pageSize = filters.pageSize ?? 20;
+  const page = Math.max(1, filters.page ?? 1);
+  const pageSize = Math.max(1, filters.pageSize ?? 20);
 
   let filtered = devolucoes;
 
-  if (search) {
-    const term = search.toLowerCase();
+  // Busca global: nome, NF, motivo, peça
+  if (filters.search?.trim()) {
+    const term = filters.search.trim().toLowerCase();
     filtered = filtered.filter(
       (d) =>
         d.nomeCliente.toLowerCase().includes(term) ||
@@ -145,33 +187,41 @@ export function filterAndPaginate(
     );
   }
 
-  if (nomeCliente) {
-    const term = nomeCliente.toLowerCase();
-    filtered = filtered.filter((d) => d.nomeCliente.toLowerCase().includes(term));
-  }
-
-  if (numeroNF) {
-    filtered = filtered.filter((d) => d.numeroNF.includes(numeroNF));
-  }
-
-  if (motivo) {
+  if (filters.nomeCliente?.trim()) {
+    const term = filters.nomeCliente.trim().toLowerCase();
     filtered = filtered.filter((d) =>
-      d.motivo.toLowerCase().includes(motivo.toLowerCase())
+      d.nomeCliente.toLowerCase().includes(term)
     );
   }
 
-  if (dataInicio || dataFim) {
+  if (filters.numeroNF?.trim()) {
+    const term = filters.numeroNF.trim();
+    filtered = filtered.filter((d) => d.numeroNF.includes(term));
+  }
+
+  if (filters.motivo?.trim()) {
+    const term = filters.motivo.trim().toLowerCase();
+    filtered = filtered.filter((d) =>
+      d.motivo.toLowerCase().includes(term)
+    );
+  }
+
+  // Filtro por intervalo de datas (usa data efetiva)
+  if (filters.dataInicio || filters.dataFim) {
+    const inicio = filters.dataInicio ? new Date(filters.dataInicio) : null;
+    const fim = filters.dataFim ? new Date(filters.dataFim) : null;
+
     filtered = filtered.filter((d) => {
-      const dt = parseDate(d.dataChegada) ?? parseDate(d.dataDevolucao);
+      const dt = getDataEfetiva(d);
       if (!dt) return false;
-      if (dataInicio && dt < new Date(dataInicio)) return false;
-      if (dataFim && dt > new Date(dataFim)) return false;
+      if (inicio && dt < inicio) return false;
+      if (fim && dt > fim) return false;
       return true;
     });
   }
 
   const total = filtered.length;
-  const totalPages = Math.ceil(total / pageSize);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const start = (page - 1) * pageSize;
   const data = filtered.slice(start, start + pageSize);
 
