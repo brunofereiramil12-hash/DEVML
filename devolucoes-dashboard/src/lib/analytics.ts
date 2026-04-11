@@ -1,150 +1,179 @@
-import { Devolucao } from "./sheets";
+import { format, parseISO, isValid, startOfMonth, isWithinInterval } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import type { Devolucao, KPIs, MotivoCount, TimelineItem, DashboardData, DevolucaoFilters, PaginatedResponse } from '@/types';
 
-// ─── parseDate ────────────────────────────────────────────────────────────────
-/**
- * Converte "DD/MM/YYYY" → Date local (sem conversão UTC para evitar off-by-one
- * com timezone BR / UTC-3).
- *
- * Tolerâncias implementadas:
- *  - Espaços/tabs extras
- *  - Separador "/" ou "-"
- *  - Datas com 1 dígito no dia ou mês ("1/5/2026" → válido)
- *  - Retorna null para string vazia ou formato não reconhecido
- */
-export function parseDate(raw: string): Date | null {
-  if (!raw) return null;
-
-  const clean = raw.trim().replace(/[\u00A0\s]+/g, "");
-  if (!clean) return null;
-
-  // Aceita DD/MM/YYYY ou D/M/YYYY (separador / ou -)
-  const match = clean.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-  if (!match) return null;
-
-  const day   = parseInt(match[1], 10);
-  const month = parseInt(match[2], 10) - 1; // 0-based
-  const year  = parseInt(match[3], 10);
-
-  if (month < 0 || month > 11 || day < 1 || day > 31) return null;
-
-  // Cria como data local (não UTC) para evitar drift de timezone
-  const d = new Date(year, month, day);
-
-  // Valida que o Date não normalizou (ex: 31/02 → março)
-  if (d.getFullYear() !== year || d.getMonth() !== month || d.getDate() !== day) {
-    return null;
-  }
-
-  return d;
-}
-
-// ─── isMotivo ─────────────────────────────────────────────────────────────────
-/**
- * Retorna true se o motivo representa "OK" (devolução aceita/resolvida).
- * Case-insensitive + trim para lidar com variações da planilha.
- */
-export function isMotivo(motivo: string, tipo: "ok"): boolean {
+export function isMotivo(motivo: string, tipo: 'ok' | 'problema'): boolean {
   const norm = motivo.trim().toUpperCase();
-  if (tipo === "ok") return norm === "OK";
-  return false;
+  // Planilha usa "OK" em maiúsculas — comparação case-insensitive
+  const isOK = norm === 'OK' || norm === 'APROVADO' || norm === 'RESOLVIDO' ||
+               norm === 'CONCLUIDO' || norm === 'ACEITO' || norm === 'CONFORME';
+  return tipo === 'ok' ? isOK : !isOK;
 }
 
-// ─── Helpers de data local ────────────────────────────────────────────────────
-
-/** Mês local no formato "YYYY-MM" */
-function toYearMonth(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  return `${y}-${m}`;
+function parseDate(dateStr: string): Date | null {
+  if (!dateStr || dateStr.trim() === '') return null;
+  const formats = [
+    /^(\d{2})\/(\d{2})\/(\d{4})$/,
+    /^(\d{4})-(\d{2})-(\d{2})$/,
+    /^(\d{2})-(\d{2})-(\d{4})$/,
+  ];
+  for (const regex of formats) {
+    const match = dateStr.match(regex);
+    if (match) {
+      let isoStr: string;
+      if (regex === formats[0] || regex === formats[2]) {
+        isoStr = `${match[3]}-${match[2]}-${match[1]}`;
+      } else {
+        isoStr = dateStr;
+      }
+      const d = parseISO(isoStr);
+      if (isValid(d)) return d;
+    }
+  }
+  return null;
 }
 
-/** True se a data pertence ao mesmo mês/ano que hoje (fuso local) */
-function isCurrentMonth(d: Date): boolean {
+export function computeKPIs(devolucoes: Devolucao[]): KPIs {
   const now = new Date();
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-}
+  const inicioMes = startOfMonth(now);
 
-// ─── Tipos de saída ───────────────────────────────────────────────────────────
-
-export interface AnalyticsSummary {
-  total: number;
-  totalThisMonth: number;
-  motivoCounts: Record<string, number>;
-  avgResolutionDays: number | null;
-  timeline: { month: string; count: number }[];
-  okPercentage: number;
-}
-
-// ─── computeAnalytics ─────────────────────────────────────────────────────────
-
-export function computeAnalytics(devolucoes: Devolucao[]): AnalyticsSummary {
-  const total = devolucoes.length;
-
-  // ── Motivos ──────────────────────────────────────────────────────────────
-  const motivoCounts: Record<string, number> = {};
-  let okCount = 0;
-
-  for (const d of devolucoes) {
-    const motivo = d.motivo.trim() || "SEM MOTIVO";
-    motivoCounts[motivo] = (motivoCounts[motivo] ?? 0) + 1;
-
-    if (isMotivo(d.motivo, "ok")) okCount++;
-  }
-
-  const okPercentage = total > 0 ? Math.round((okCount / total) * 100) : 0;
-
-  // ── Total no mês ─────────────────────────────────────────────────────────
-  // Usa DATA_CHEGADA; se vazia, usa DATA_DEVOLUCAO como fallback
-  let totalThisMonth = 0;
-  for (const d of devolucoes) {
+  const doMes = devolucoes.filter((d) => {
+    // Usa dataChegada; se vazia, usa dataDevolucao como fallback
     const dt = parseDate(d.dataChegada) ?? parseDate(d.dataDevolucao);
-    if (dt && isCurrentMonth(dt)) totalThisMonth++;
-  }
+    return dt && isWithinInterval(dt, { start: inicioMes, end: now });
+  });
 
-  // ── Média de resolução ────────────────────────────────────────────────────
-  let sumDays = 0;
-  let countResolved = 0;
+  const comResolucao = devolucoes.filter((d) => d.dataDevolucao && d.dataDevolucao.trim() !== '');
+  const pendentes = devolucoes.length - comResolucao.length;
+
+  const diasResolucao = comResolucao
+    .map((d) => {
+      const chegada = parseDate(d.dataChegada);
+      const devolucao = parseDate(d.dataDevolucao);
+      if (!chegada || !devolucao) return null;
+      return (devolucao.getTime() - chegada.getTime()) / (1000 * 60 * 60 * 24);
+    })
+    .filter((d): d is number => d !== null && d >= 0);
+
+  const avgDias =
+    diasResolucao.length > 0
+      ? Math.round(diasResolucao.reduce((a, b) => a + b, 0) / diasResolucao.length)
+      : 0;
+
+  const totalOK = devolucoes.filter((d) => isMotivo(d.motivo, 'ok')).length;
+  const total = devolucoes.length || 1;
+
+  return {
+    totalMes: doMes.length,
+    totalGeral: devolucoes.length,
+    percentualOK: Math.round((totalOK / total) * 100),
+    percentualProblema: Math.round(((total - totalOK) / total) * 100),
+    pendentes,
+    avgDiasResolucao: avgDias,
+  };
+}
+
+export function computeMotivoChart(devolucoes: Devolucao[]): MotivoCount[] {
+  const countMap = new Map<string, number>();
 
   for (const d of devolucoes) {
-    const chegada   = parseDate(d.dataChegada);
-    const devolucao = parseDate(d.dataDevolucao);
-    if (!chegada || !devolucao) continue;
+    const key = d.motivo.trim() || 'Nao informado';
+    countMap.set(key, (countMap.get(key) ?? 0) + 1);
+  }
 
-    const diffMs   = devolucao.getTime() - chegada.getTime();
-    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+  const total = devolucoes.length || 1;
 
-    // Aceita apenas diffs positivos ou zero (devolução >= chegada)
-    if (diffDays >= 0) {
-      sumDays += diffDays;
-      countResolved++;
+  return Array.from(countMap.entries())
+    .map(([motivo, count]) => ({
+      motivo,
+      count,
+      percentage: Math.round((count / total) * 100),
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+}
+
+export function computeTimeline(devolucoes: Devolucao[]): TimelineItem[] {
+  const countMap = new Map<string, { label: string; count: number }>();
+
+  for (const d of devolucoes) {
+    // Usa dataChegada; se vazia, usa dataDevolucao como fallback
+    const dt = parseDate(d.dataChegada) ?? parseDate(d.dataDevolucao);
+    if (!dt) continue;
+    const sortKey = format(dt, 'yyyy-MM');
+    const label = format(dt, 'MMM yy', { locale: ptBR });
+    const existing = countMap.get(sortKey);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      countMap.set(sortKey, { label, count: 1 });
     }
   }
 
-  const avgResolutionDays =
-    countResolved > 0 ? Math.round(sumDays / countResolved) : null;
+  return Array.from(countMap.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-12)
+    .map(([, { label, count }]) => ({ date: label, count }));
+}
 
-  // ── Timeline ──────────────────────────────────────────────────────────────
-  // Agrupa por mês de DATA_CHEGADA; fallback para DATA_DEVOLUCAO
-  const timelineMap: Record<string, number> = {};
+export function buildDashboardData(devolucoes: Devolucao[]): DashboardData {
+  return {
+    kpis: computeKPIs(devolucoes),
+    motivoChart: computeMotivoChart(devolucoes),
+    timeline: computeTimeline(devolucoes),
+  };
+}
 
-  for (const d of devolucoes) {
-    const dt = parseDate(d.dataChegada) ?? parseDate(d.dataDevolucao);
-    if (!dt) continue;
+export function filterAndPaginate(
+  devolucoes: Devolucao[],
+  filters: DevolucaoFilters
+): PaginatedResponse<Devolucao> {
+  const { search, nomeCliente, numeroNF, motivo, dataInicio, dataFim } = filters;
+  const page = filters.page ?? 1;
+  const pageSize = filters.pageSize ?? 20;
 
-    const key = toYearMonth(dt);
-    timelineMap[key] = (timelineMap[key] ?? 0) + 1;
+  let filtered = devolucoes;
+
+  if (search) {
+    const term = search.toLowerCase();
+    filtered = filtered.filter(
+      (d) =>
+        d.nomeCliente.toLowerCase().includes(term) ||
+        d.numeroNF.toLowerCase().includes(term) ||
+        d.motivo.toLowerCase().includes(term) ||
+        d.codigoPecaQtd.toLowerCase().includes(term)
+    );
   }
 
-  const timeline = Object.entries(timelineMap)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([month, count]) => ({ month, count }));
+  if (nomeCliente) {
+    const term = nomeCliente.toLowerCase();
+    filtered = filtered.filter((d) => d.nomeCliente.toLowerCase().includes(term));
+  }
 
-  return {
-    total,
-    totalThisMonth,
-    motivoCounts,
-    avgResolutionDays,
-    timeline,
-    okPercentage,
-  };
+  if (numeroNF) {
+    filtered = filtered.filter((d) => d.numeroNF.includes(numeroNF));
+  }
+
+  if (motivo) {
+    filtered = filtered.filter((d) =>
+      d.motivo.toLowerCase().includes(motivo.toLowerCase())
+    );
+  }
+
+  if (dataInicio || dataFim) {
+    filtered = filtered.filter((d) => {
+      const dt = parseDate(d.dataChegada) ?? parseDate(d.dataDevolucao);
+      if (!dt) return false;
+      if (dataInicio && dt < new Date(dataInicio)) return false;
+      if (dataFim && dt > new Date(dataFim)) return false;
+      return true;
+    });
+  }
+
+  const total = filtered.length;
+  const totalPages = Math.ceil(total / pageSize);
+  const start = (page - 1) * pageSize;
+  const data = filtered.slice(start, start + pageSize);
+
+  return { data, total, page, pageSize, totalPages };
 }
