@@ -1,4 +1,4 @@
-import { format, parseISO, isValid, startOfMonth, isWithinInterval } from 'date-fns';
+import { format, isValid, startOfMonth, isWithinInterval, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import type { Devolucao, KPIs, MotivoCount, TimelineItem, DashboardData, DevolucaoFilters, PaginatedResponse } from '@/types';
 
@@ -11,24 +11,29 @@ export function isMotivo(motivo: string, tipo: 'ok' | 'problema'): boolean {
 
 function parseDate(dateStr: string): Date | null {
   if (!dateStr || dateStr.trim() === '') return null;
-  const formats = [
-    /^(\d{2})\/(\d{2})\/(\d{4})$/,
-    /^(\d{4})-(\d{2})-(\d{2})$/,
-    /^(\d{2})-(\d{2})-(\d{4})$/,
-  ];
-  for (const regex of formats) {
-    const match = dateStr.match(regex);
-    if (match) {
-      let isoStr: string;
-      if (regex === formats[0] || regex === formats[2]) {
-        isoStr = `${match[3]}-${match[2]}-${match[1]}`;
-      } else {
-        isoStr = dateStr;
-      }
-      const d = parseISO(isoStr);
-      if (isValid(d)) return d;
-    }
+  const s = dateStr.trim();
+
+  // DD/MM/YYYY
+  const m1 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m1) {
+    const d = new Date(Number(m1[3]), Number(m1[2]) - 1, Number(m1[1]));
+    if (isValid(d)) return d;
   }
+
+  // YYYY-MM-DD
+  const m2 = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m2) {
+    const d = parseISO(s);
+    if (isValid(d)) return d;
+  }
+
+  // DD-MM-YYYY
+  const m3 = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if (m3) {
+    const d = new Date(Number(m3[3]), Number(m3[2]) - 1, Number(m3[1]));
+    if (isValid(d)) return d;
+  }
+
   return null;
 }
 
@@ -65,112 +70,3 @@ export function computeKPIs(devolucoes: Devolucao[]): KPIs {
     totalMes: doMes.length,
     totalGeral: devolucoes.length,
     percentualOK: Math.round((totalOK / total) * 100),
-    percentualProblema: Math.round(((total - totalOK) / total) * 100),
-    pendentes,
-    avgDiasResolucao: avgDias,
-  };
-}
-
-export function computeMotivoChart(devolucoes: Devolucao[]): MotivoCount[] {
-  const countMap = new Map<string, number>();
-
-  for (const d of devolucoes) {
-    const key = d.motivo.trim() || 'Nao informado';
-    countMap.set(key, (countMap.get(key) ?? 0) + 1);
-  }
-
-  const total = devolucoes.length || 1;
-
-  return Array.from(countMap.entries())
-    .map(([motivo, count]) => ({
-      motivo,
-      count,
-      percentage: Math.round((count / total) * 100),
-    }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10);
-}
-
-export function computeTimeline(devolucoes: Devolucao[]): TimelineItem[] {
-  const countMap = new Map<string, { label: string; count: number }>();
-
-  for (const d of devolucoes) {
-    const dt = parseDate(d.dataChegada);
-    if (!dt) continue;
-    const sortKey = format(dt, 'yyyy-MM');
-    const label = format(dt, 'MMM yy', { locale: ptBR });
-    const existing = countMap.get(sortKey);
-    if (existing) {
-      existing.count += 1;
-    } else {
-      countMap.set(sortKey, { label, count: 1 });
-    }
-  }
-
-  return Array.from(countMap.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .slice(-12)
-    .map(([, { label, count }]) => ({ date: label, count }));
-}
-
-export function buildDashboardData(devolucoes: Devolucao[]): DashboardData {
-  return {
-    kpis: computeKPIs(devolucoes),
-    motivoChart: computeMotivoChart(devolucoes),
-    timeline: computeTimeline(devolucoes),
-  };
-}
-
-export function filterAndPaginate(
-  devolucoes: Devolucao[],
-  filters: DevolucaoFilters
-): PaginatedResponse<Devolucao> {
-  const { search, nomeCliente, numeroNF, motivo, dataInicio, dataFim } = filters;
-  const page = filters.page ?? 1;
-  const pageSize = filters.pageSize ?? 20;
-
-  let filtered = devolucoes;
-
-  if (search) {
-    const term = search.toLowerCase();
-    filtered = filtered.filter(
-      (d) =>
-        d.nomeCliente.toLowerCase().includes(term) ||
-        d.numeroNF.toLowerCase().includes(term) ||
-        d.motivo.toLowerCase().includes(term) ||
-        d.codigoPecaQtd.toLowerCase().includes(term)
-    );
-  }
-
-  if (nomeCliente) {
-    const term = nomeCliente.toLowerCase();
-    filtered = filtered.filter((d) => d.nomeCliente.toLowerCase().includes(term));
-  }
-
-  if (numeroNF) {
-    filtered = filtered.filter((d) => d.numeroNF.includes(numeroNF));
-  }
-
-  if (motivo) {
-    filtered = filtered.filter((d) =>
-      d.motivo.toLowerCase().includes(motivo.toLowerCase())
-    );
-  }
-
-  if (dataInicio || dataFim) {
-    filtered = filtered.filter((d) => {
-      const dt = parseDate(d.dataChegada);
-      if (!dt) return false;
-      if (dataInicio && dt < new Date(dataInicio)) return false;
-      if (dataFim && dt > new Date(dataFim)) return false;
-      return true;
-    });
-  }
-
-  const total = filtered.length;
-  const totalPages = Math.ceil(total / pageSize);
-  const start = (page - 1) * pageSize;
-  const data = filtered.slice(start, start + pageSize);
-
-  return { data, total, page, pageSize, totalPages };
-}
