@@ -1,11 +1,9 @@
-import { format, parseISO, isValid, startOfMonth, isWithinInterval } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
-import type { Devolucao, KPIs, MotivoCount, TimelineItem, DashboardData, DevolucaoFilters, PaginatedResponse } from '@/types';
-
-// ─── Classificação de motivos ─────────────────────────────────────────────────
-
 export function isMotivo(motivo: string, tipo: 'ok' | 'problema'): boolean {
   const lower = motivo.toLowerCase().trim();
+  const palavrasOK = ['aprovado', 'resolvido', 'concluído', 'aceito', 'conforme'];
+  const isOK = lower === 'ok' || palavrasOK.some((m) => lower.includes(m));
+  return tipo === 'ok' ? isOK : !isOK;
+}
   // "OK" sozinho OU contém palavras de resolução
   const isOK = lower === 'ok' || ['aprovado', 'resolvido', 'concluído', 'aceito', 'conforme'].some((m) => lower.includes(m));
   return tipo === 'ok' ? isOK : !isOK;
