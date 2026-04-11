@@ -11,49 +11,30 @@ const COL = {
   MOTIVO: 6,
 } as const;
 
-function parsePrivateKey(raw: string | undefined): string {
-  if (!raw) {
-    throw new Error('GOOGLE_PRIVATE_KEY nao definida na Vercel');
-  }
-  let key = raw.trim();
-  if (key.startsWith('{')) {
-    try {
-      const p = JSON.parse(key);
-      key = p.private_key ?? p.privateKey ?? key;
-    } catch (_) {}
-  }
-  if (key.startsWith('"') && key.endsWith('"')) {
-    key = key.slice(1, -1);
-  }
-  key = key.replace(/\\n/g, '\n');
-  if (!key.includes('-----BEGIN') || !key.includes('-----END')) {
-    throw new Error('GOOGLE_PRIVATE_KEY invalida - sem marcadores BEGIN/END');
-  }
-  return key;
-}
-
 function getSheetsClient(): sheets_v4.Sheets {
-  const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
-  const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  if (!spreadsheetId) {
-    throw new Error('GOOGLE_SPREADSHEET_ID nao definida na Vercel');
+  const jsonRaw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (!jsonRaw) throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON nao definida na Vercel');
+
+  let credentials: any;
+  try {
+    credentials = JSON.parse(jsonRaw);
+  } catch {
+    throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON invalido - nao e um JSON valido');
   }
-  if (!clientEmail) {
-    throw new Error('GOOGLE_SERVICE_ACCOUNT_EMAIL nao definida na Vercel');
+
+  if (!credentials.private_key || !credentials.client_email) {
+    throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON sem private_key ou client_email');
   }
-  const privateKey = parsePrivateKey(process.env.GOOGLE_PRIVATE_KEY);
+
   const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: clientEmail,
-      private_key: privateKey,
-    },
+    credentials,
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
   return google.sheets({ version: 'v4', auth });
 }
 
 function getSheetName(): string {
-  return process.env.GOOGLE_SHEET_NAME ?? 'Sheet1';
+  return process.env.GOOGLE_SHEET_NAME ?? 'Devoluções 2026';
 }
 
 function getSpreadsheetId(): string {
@@ -63,8 +44,8 @@ function getSpreadsheetId(): string {
 }
 
 function rowToRange(rowIndex: number): string {
-  const sheetRow = rowIndex + 2;
-  return `${getSheetName()}!B${sheetRow}:H${sheetRow}`;
+  const sheetRow = rowIndex + 3;
+  return `'${getSheetName()}'!B${sheetRow}:H${sheetRow}`;
 }
 
 function rawRowToDevolucao(row: string[], rowIndex: number): Devolucao {
@@ -82,10 +63,11 @@ function rawRowToDevolucao(row: string[], rowIndex: number): Devolucao {
 
 export async function getAllDevolucoes(): Promise<Devolucao[]> {
   const sheets = getSheetsClient();
+  const sheetName = getSheetName();
   try {
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: getSpreadsheetId(),
-      range: `${getSheetName()}!B3:H`,
+      range: `'${sheetName}'!B3:H`,
     });
     const rows = response.data.values ?? [];
     return rows.map((row, index) =>
@@ -94,19 +76,13 @@ export async function getAllDevolucoes(): Promise<Devolucao[]> {
   } catch (err: any) {
     const msg = err?.message ?? String(err);
     if (msg.includes('invalid_grant') || msg.includes('DECODER')) {
-      throw new Error('Autenticacao falhou: PRIVATE_KEY malformada');
+      throw new Error('Autenticacao falhou: credenciais invalidas - ' + msg);
     }
     if (msg.includes('403') || msg.includes('forbidden')) {
-      throw new Error(
-        'Permissao negada: compartilhe a planilha com ' +
-        process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL +
-        ' como Editor'
-      );
+      throw new Error('Permissao negada: compartilhe a planilha com devml-sheets@devml-sheets.iam.gserviceaccount.com como Editor');
     }
-    if (msg.includes('404') || msg.includes('not found')) {
-      throw new Error(
-        'Planilha nao encontrada: verifique GOOGLE_SPREADSHEET_ID e GOOGLE_SHEET_NAME'
-      );
+    if (msg.includes('404') || msg.includes('not found') || msg.includes('Unable to parse range')) {
+      throw new Error('Planilha/aba nao encontrada: ' + msg);
     }
     throw new Error('Erro Google Sheets: ' + msg);
   }
@@ -114,9 +90,10 @@ export async function getAllDevolucoes(): Promise<Devolucao[]> {
 
 export async function appendDevolucao(values: string[]): Promise<void> {
   const sheets = getSheetsClient();
+  const sheetName = getSheetName();
   await sheets.spreadsheets.values.append({
     spreadsheetId: getSpreadsheetId(),
-    range: `${getSheetName()}!A:G`,
+    range: `'${sheetName}'!B:H`,
     valueInputOption: 'USER_ENTERED',
     insertDataOption: 'INSERT_ROWS',
     requestBody: { values: [values] },
