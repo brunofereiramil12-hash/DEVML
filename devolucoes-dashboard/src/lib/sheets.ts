@@ -1,131 +1,103 @@
-import { google, sheets_v4 } from 'googleapis';
-import type { Devolucao } from '@/types';
+import { google } from "googleapis";
 
+// ─── Tipos ────────────────────────────────────────────────────────────────────
+
+export interface Devolucao {
+  dataChegada: string;   // DD/MM/YYYY ou ""
+  nomeCliente: string;
+  numeroNF: string;
+  codigoPecaQtd: string;
+  dataDevolucao: string; // DD/MM/YYYY ou ""
+  numeroNFDev: string;
+  motivo: string;
+}
+
+// ─── Índices das colunas (range C3:I → 7 colunas, índice 0-based) ────────────
+// C=0  D=1          E=2       F=3              G=4             H=5           I=6
+// Data  NomeCliente  Nº NF    Código peça/qtd  Data devolução  Nº NF dev     Motivo
 const COL = {
-  DATA_CHEGADA: 0,
-  NOME_CLIENTE: 1,
-  NUMERO_NF: 2,
+  DATA_CHEGADA:    0,
+  NOME_CLIENTE:    1,
+  NUMERO_NF:       2,
   CODIGO_PECA_QTD: 3,
-  DATA_DEVOLUCAO: 4,
-  NUMERO_NF_DEV: 5,
-  MOTIVO: 6,
+  DATA_DEVOLUCAO:  4,
+  NUMERO_NF_DEV:   5,
+  MOTIVO:          6,
 } as const;
 
-function getSheetsClient(): sheets_v4.Sheets {
-  const jsonRaw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  if (!jsonRaw) throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON nao definida na Vercel');
+// ─── Helpers internos ─────────────────────────────────────────────────────────
 
-  let credentials: any;
+/**
+ * Lê o valor de uma célula pelo índice, trimando espaços invisíveis e
+ * retornando "" para células ausentes/nulas.
+ */
+function cell(row: (string | null | undefined)[], idx: number): string {
+  const v = row[idx];
+  if (v == null) return "";
+  // Remove espaços, tabs, NBSP (\u00A0) e quebras de linha que o Sheets exporta
+  return String(v).replace(/[\u00A0\s]+/g, " ").trim();
+}
+
+// ─── Autenticação ─────────────────────────────────────────────────────────────
+
+function getAuth() {
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (!raw) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON não definido");
+
+  let credentials: object;
   try {
-    credentials = JSON.parse(jsonRaw);
+    credentials = JSON.parse(raw);
   } catch {
-    throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON invalido - nao e um JSON valido');
+    throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON não é um JSON válido");
   }
 
-  if (!credentials.private_key || !credentials.client_email) {
-    throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON sem private_key ou client_email');
-  }
-
-  const auth = new google.auth.GoogleAuth({
+  return new google.auth.GoogleAuth({
     credentials,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
   });
-  return google.sheets({ version: 'v4', auth });
 }
 
-function getSheetName(): string {
-  return process.env.GOOGLE_SHEET_NAME ?? 'Devoluções 2026';
-}
+// ─── Busca principal ──────────────────────────────────────────────────────────
 
-function getSpreadsheetId(): string {
-  const id = process.env.GOOGLE_SPREADSHEET_ID;
-  if (!id) throw new Error('GOOGLE_SPREADSHEET_ID nao definida');
-  return id;
-}
+export async function fetchDevolucoes(): Promise<Devolucao[]> {
+  const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
+  const sheetName     = process.env.GOOGLE_SHEET_NAME ?? "Devoluções 2026";
 
-function rowToRange(rowIndex: number): string {
-  const sheetRow = rowIndex + 3;
-  return `'${getSheetName()}'!C${sheetRow}:I${sheetRow}`;
-}
+  if (!spreadsheetId) throw new Error("GOOGLE_SPREADSHEET_ID não definido");
 
-function rawRowToDevolucao(row: string[], rowIndex: number): Devolucao {
-  return {
-    rowIndex,
-    dataChegada: row[COL.DATA_CHEGADA] ?? '',
-    nomeCliente: row[COL.NOME_CLIENTE] ?? '',
-    numeroNF: row[COL.NUMERO_NF] ?? '',
-    codigoPecaQtd: row[COL.CODIGO_PECA_QTD] ?? '',
-    dataDevolucao: row[COL.DATA_DEVOLUCAO] ?? '',
-    numeroNFDevolucao: row[COL.NUMERO_NF_DEV] ?? '',
-    motivo: row[COL.MOTIVO] ?? '',
-  };
-}
+  const auth   = getAuth();
+  const sheets = google.sheets({ version: "v4", auth });
 
-export async function getAllDevolucoes(): Promise<Devolucao[]> {
-  const sheets = getSheetsClient();
-  const sheetName = getSheetName();
-  try {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: getSpreadsheetId(),
-      range: `'${sheetName}'!C3:I`,
+  // C3:I → começa na linha 3 (pula título+cabeçalho) e vai até a col I (motivo)
+  const range = `'${sheetName}'!C3:I`;
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range,
+    valueRenderOption: "FORMATTED_VALUE", // datas já no formato DD/MM/YYYY
+    dateTimeRenderOption: "FORMATTED_STRING",
+  });
+
+  const rows = response.data.values ?? [];
+
+  const devolucoes: Devolucao[] = [];
+
+  for (const row of rows) {
+    // Ignora linhas completamente vazias
+    const rowStr = row as (string | null | undefined)[];
+    const allEmpty = rowStr.every((c) => c == null || String(c).trim() === "");
+    if (allEmpty) continue;
+
+    devolucoes.push({
+      dataChegada:    cell(rowStr, COL.DATA_CHEGADA),
+      nomeCliente:    cell(rowStr, COL.NOME_CLIENTE),
+      numeroNF:       cell(rowStr, COL.NUMERO_NF),
+      codigoPecaQtd:  cell(rowStr, COL.CODIGO_PECA_QTD),
+      dataDevolucao:  cell(rowStr, COL.DATA_DEVOLUCAO),
+      numeroNFDev:    cell(rowStr, COL.NUMERO_NF_DEV),
+      motivo:         cell(rowStr, COL.MOTIVO),
     });
-    const rows = response.data.values ?? [];
-    return rows.map((row, index) =>
-      rawRowToDevolucao(row as string[], index + 1)
-    );
-  } catch (err: any) {
-    const msg = err?.message ?? String(err);
-    if (msg.includes('invalid_grant') || msg.includes('DECODER')) {
-      throw new Error('Autenticacao falhou: credenciais invalidas - ' + msg);
-    }
-    if (msg.includes('403') || msg.includes('forbidden')) {
-      throw new Error('Permissao negada: compartilhe a planilha com devml-sheets@devml-sheets.iam.gserviceaccount.com como Editor');
-    }
-    if (msg.includes('404') || msg.includes('not found') || msg.includes('Unable to parse range')) {
-      throw new Error('Planilha/aba nao encontrada: ' + msg);
-    }
-    throw new Error('Erro Google Sheets: ' + msg);
   }
-}
 
-export async function appendDevolucao(values: string[]): Promise<void> {
-  const sheets = getSheetsClient();
-  const sheetName = getSheetName();
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: getSpreadsheetId(),
-    range: `'${sheetName}'!C:I`,
-    valueInputOption: 'USER_ENTERED',
-    insertDataOption: 'INSERT_ROWS',
-    requestBody: { values: [values] },
-  });
-}
-
-export async function updateDevolucaoRow(
-  rowIndex: number,
-  values: string[]
-): Promise<void> {
-  const sheets = getSheetsClient();
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: getSpreadsheetId(),
-    range: rowToRange(rowIndex),
-    valueInputOption: 'USER_ENTERED',
-    requestBody: { values: [values] },
-  });
-}
-
-export async function findRowByNF(numeroNF: string): Promise<Devolucao | null> {
-  const all = await getAllDevolucoes();
-  return all.find((d) => d.numeroNF.trim() === numeroNF.trim()) ?? null;
-}
-
-export function buildRowValues(d: Partial<Devolucao>): string[] {
-  return [
-    d.dataChegada ?? '',
-    d.nomeCliente ?? '',
-    d.numeroNF ?? '',
-    d.codigoPecaQtd ?? '',
-    d.dataDevolucao ?? '',
-    d.numeroNFDevolucao ?? '',
-    d.motivo ?? '',
-  ];
+  return devolucoes;
 }
