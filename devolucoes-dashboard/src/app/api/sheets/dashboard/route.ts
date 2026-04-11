@@ -27,7 +27,7 @@ export async function GET() {
   } catch (error) {
     console.error('[/api/dashboard] Error:', error);
     return NextResponse.json(
-      { success: false, error: 'Falha ao carregar dados do dashboard' },
+      { success: false, error: (error as any)?.message ?? 'Falha ao carregar dados do dashboard' },
       { status: 500 }
     );
   }
