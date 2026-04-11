@@ -8,8 +8,8 @@ const COL = {
   CODIGO_PECA_QTD: 3,  // F
   DATA_DEVOLUCAO:  4,  // G
   NUMERO_NF_DEV:   5,  // H
-  NUMERO_NF_DEV2:  6,  // I (coluna vazia)
-  MOTIVO:          7,  // J
+  // idx 6 = col I (vazia na planilha — Google Sheets trunca aqui)
+  MOTIVO:          6,  // I → mas na planilha é J; lido via range C3:I separado abaixo
 } as const;
 
 function getSheetsClient(): sheets_v4.Sheets {
@@ -50,15 +50,20 @@ function rowToRange(rowIndex: number): string {
 }
 
 function rawRowToDevolucao(row: string[], rowIndex: number): Devolucao {
+  // Col I (idx 6) está vazia — Google Sheets trunca a linha antes de chegar em J.
+  // Solução: buscar C3:J mas ler motivo sempre no idx 7 (col J).
+  // Se row.length < 8, motivo fica "" — tratado no analytics como "Nao informado".
+  // Para evitar isso usamos valueRenderOption FORMATTED_VALUE que preserva células vazias
+  // entre colunas preenchidas quando há valor depois delas.
   return {
     rowIndex,
-    dataChegada:        row[COL.DATA_CHEGADA]    ?? '',
-    nomeCliente:        row[COL.NOME_CLIENTE]    ?? '',
-    numeroNF:           row[COL.NUMERO_NF]       ?? '',
-    codigoPecaQtd:      row[COL.CODIGO_PECA_QTD] ?? '',
-    dataDevolucao:      row[COL.DATA_DEVOLUCAO]  ?? '',
-    numeroNFDevolucao:  row[COL.NUMERO_NF_DEV]   ?? '',
-    motivo:             row[COL.MOTIVO]           ?? '',
+    dataChegada:       row[0] ?? '',
+    nomeCliente:       row[1] ?? '',
+    numeroNF:          row[2] ?? '',
+    codigoPecaQtd:     row[3] ?? '',
+    dataDevolucao:     row[4] ?? '',
+    numeroNFDevolucao: row[5] ?? '',
+    motivo:            row[7] ?? '',  // col J — pula col I vazia (idx 6)
   };
 }
 
@@ -68,12 +73,13 @@ export async function getAllDevolucoes(): Promise<Devolucao[]> {
   try {
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: getSpreadsheetId(),
-      range: `'${sheetName}'!C3:J`,  // era B3:I — corrigido +1 coluna para pular col B vazia
+      range: `'${sheetName}'!C3:J`,
+      valueRenderOption: 'FORMATTED_VALUE',
     });
     const rows = response.data.values ?? [];
-    return rows.map((row, index) =>
-      rawRowToDevolucao(row as string[], index + 1)
-    );
+    return rows
+      .filter((row) => row.some((cell) => cell !== null && cell !== ''))
+      .map((row, index) => rawRowToDevolucao(row as string[], index + 1));
   } catch (err: any) {
     const msg = err?.message ?? String(err);
     if (msg.includes('invalid_grant') || msg.includes('DECODER')) {
@@ -94,7 +100,7 @@ export async function appendDevolucao(values: string[]): Promise<void> {
   const sheetName = getSheetName();
   await sheets.spreadsheets.values.append({
     spreadsheetId: getSpreadsheetId(),
-    range: `'${sheetName}'!C:J`,  // era B:I
+    range: `'${sheetName}'!C:J`,
     valueInputOption: 'USER_ENTERED',
     insertDataOption: 'INSERT_ROWS',
     requestBody: { values: [values] },
@@ -121,13 +127,13 @@ export async function findRowByNF(numeroNF: string): Promise<Devolucao | null> {
 
 export function buildRowValues(d: Partial<Devolucao>): string[] {
   return [
-    d.dataChegada        ?? '',
-    d.nomeCliente        ?? '',
-    d.numeroNF           ?? '',
-    d.codigoPecaQtd      ?? '',
-    d.dataDevolucao      ?? '',
-    d.numeroNFDevolucao  ?? '',
-    '',
-    d.motivo             ?? '',
+    d.dataChegada        ?? '',  // C
+    d.nomeCliente        ?? '',  // D
+    d.numeroNF           ?? '',  // E
+    d.codigoPecaQtd      ?? '',  // F
+    d.dataDevolucao      ?? '',  // G
+    d.numeroNFDevolucao  ?? '',  // H
+    '',                          // I vazia
+    d.motivo             ?? '',  // J
   ];
 }
