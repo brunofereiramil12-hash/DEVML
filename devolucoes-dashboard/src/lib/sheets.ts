@@ -85,7 +85,7 @@ export async function getAllDevolucoes(): Promise<Devolucao[]> {
   try {
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: getSpreadsheetId(),
-      range: `${getSheetName()}!A2:G`,
+      range: `${getSheetName()}!A3:G`,
     });
     const rows = response.data.values ?? [];
     return rows.map((row, index) =>
