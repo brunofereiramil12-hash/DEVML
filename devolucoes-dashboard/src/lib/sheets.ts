@@ -8,7 +8,8 @@ const COL = {
   CODIGO_PECA_QTD: 3,
   DATA_DEVOLUCAO: 4,
   NUMERO_NF_DEV: 5,
-  MOTIVO: 6,
+  NUMERO_NF_DEV2: 6,
+  MOTIVO: 7,
 } as const;
 
 function getSheetsClient(): sheets_v4.Sheets {
@@ -45,7 +46,7 @@ function getSpreadsheetId(): string {
 
 function rowToRange(rowIndex: number): string {
   const sheetRow = rowIndex + 3;
-  return `'${getSheetName()}'!B${sheetRow}:H${sheetRow}`;
+  return `'${getSheetName()}'!B${sheetRow}:I${sheetRow}`;
 }
 
 function rawRowToDevolucao(row: string[], rowIndex: number): Devolucao {
@@ -67,7 +68,7 @@ export async function getAllDevolucoes(): Promise<Devolucao[]> {
   try {
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: getSpreadsheetId(),
-      range: `'${sheetName}'!B3:H`,
+      range: `'${sheetName}'!B3:I`,
     });
     const rows = response.data.values ?? [];
     return rows.map((row, index) =>
@@ -93,7 +94,7 @@ export async function appendDevolucao(values: string[]): Promise<void> {
   const sheetName = getSheetName();
   await sheets.spreadsheets.values.append({
     spreadsheetId: getSpreadsheetId(),
-    range: `'${sheetName}'!B:H`,
+    range: `'${sheetName}'!B:I`,
     valueInputOption: 'USER_ENTERED',
     insertDataOption: 'INSERT_ROWS',
     requestBody: { values: [values] },
@@ -126,6 +127,7 @@ export function buildRowValues(d: Partial<Devolucao>): string[] {
     d.codigoPecaQtd ?? '',
     d.dataDevolucao ?? '',
     d.numeroNFDevolucao ?? '',
+    '',
     d.motivo ?? '',
   ];
 }
