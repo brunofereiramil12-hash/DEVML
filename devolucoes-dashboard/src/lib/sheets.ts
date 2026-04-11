@@ -12,29 +12,44 @@ export interface Devolucao {
   motivo: string;
 }
 
-// ─── Índices das colunas (range C3:I → 7 colunas, índice 0-based) ────────────
-// C=0  D=1          E=2       F=3              G=4             H=5           I=6
-// Data  NomeCliente  Nº NF    Código peça/qtd  Data devolução  Nº NF dev     Motivo
+// ─── Índices das colunas (range D3:J → 7 colunas, índice 0-based) ─────────────
+//
+// DIAGNÓSTICO baseado no JSON real da API em produção:
+//
+//   Range ANTIGO C3:I produzia (tudo deslocado +1):
+//     idx 0 (C) = ""              ← col C vazia na planilha
+//     idx 1 (D) = "02/01/2026"   ← data, era mapeado como nomeCliente (ERRADO)
+//     idx 2 (E) = "EDUARDO REI…" ← nome, era mapeado como numeroNF (ERRADO)
+//     idx 3 (F) = "124975"       ← código peça
+//     idx 4 (G) = "4035129105R"  ← nº NF, era mapeado como dataDevolucao (ERRADO)
+//     idx 5 (H) = "09/01/2026"   ← data devolução, era mapeado como numeroNFDev (ERRADO)
+//     idx 6 (I) = "126501"       ← nº NF dev, era mapeado como motivo (ERRADO)
+//     (J = motivo real nunca chegava — fora do range)
+//
+//   Range CORRETO D3:J:
+//     idx 0 (D) = dataChegada    → DD/MM/YYYY (pode ser vazio)
+//     idx 1 (E) = nomeCliente
+//     idx 2 (F) = numeroNF
+//     idx 3 (G) = codigoPecaQtd
+//     idx 4 (H) = dataDevolucao  → DD/MM/YYYY ✓ confirmado no JSON
+//     idx 5 (I) = numeroNFDev    → "7700500155 - 04" ✓ confirmado
+//     idx 6 (J) = motivo         → "INCOMPATÍVEL", "OK", "DESISTÊNCIA" etc
+//
 const COL = {
-  DATA_CHEGADA:    0,
-  NOME_CLIENTE:    1,
-  NUMERO_NF:       2,
-  CODIGO_PECA_QTD: 3,
-  DATA_DEVOLUCAO:  4,
-  NUMERO_NF_DEV:   5,
-  MOTIVO:          6,
+  DATA_CHEGADA:    0,  // D
+  NOME_CLIENTE:    1,  // E
+  NUMERO_NF:       2,  // F
+  CODIGO_PECA_QTD: 3,  // G
+  DATA_DEVOLUCAO:  4,  // H
+  NUMERO_NF_DEV:   5,  // I
+  MOTIVO:          6,  // J
 } as const;
 
-// ─── Helpers internos ─────────────────────────────────────────────────────────
+// ─── Helper interno ───────────────────────────────────────────────────────────
 
-/**
- * Lê o valor de uma célula pelo índice, trimando espaços invisíveis e
- * retornando "" para células ausentes/nulas.
- */
 function cell(row: (string | null | undefined)[], idx: number): string {
   const v = row[idx];
   if (v == null) return "";
-  // Remove espaços, tabs, NBSP (\u00A0) e quebras de linha que o Sheets exporta
   return String(v).replace(/[\u00A0\s]+/g, " ").trim();
 }
 
@@ -68,22 +83,20 @@ export async function fetchDevolucoes(): Promise<Devolucao[]> {
   const auth   = getAuth();
   const sheets = google.sheets({ version: "v4", auth });
 
-  // C3:I → começa na linha 3 (pula título+cabeçalho) e vai até a col I (motivo)
-  const range = `'${sheetName}'!C3:I`;
+  // D3:J — pula col C (vazia), começa em D (dataChegada), termina em J (motivo)
+  const range = `'${sheetName}'!D3:J`;
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range,
-    valueRenderOption: "FORMATTED_VALUE", // datas já no formato DD/MM/YYYY
+    valueRenderOption: "FORMATTED_VALUE",
     dateTimeRenderOption: "FORMATTED_STRING",
   });
 
   const rows = response.data.values ?? [];
-
   const devolucoes: Devolucao[] = [];
 
   for (const row of rows) {
-    // Ignora linhas completamente vazias
     const rowStr = row as (string | null | undefined)[];
     const allEmpty = rowStr.every((c) => c == null || String(c).trim() === "");
     if (allEmpty) continue;
