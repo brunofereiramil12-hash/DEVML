@@ -82,8 +82,9 @@ export function useDashboard(
   return useQuery({
     queryKey: queryKeys.dashboard,
     queryFn: fetchDashboard,
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 0,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
     ...options,
   });
 }
@@ -92,7 +93,9 @@ export function useDevolucoes(filters: DevolucaoFilters) {
   return useQuery({
     queryKey: queryKeys.devolucoes(filters),
     queryFn: () => fetchDevolucoes(filters),
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
     placeholderData: (prev) => prev,
   });
 }
