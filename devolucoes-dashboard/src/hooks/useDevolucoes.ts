@@ -1,6 +1,6 @@
 /**
  * React Query (TanStack Query) hooks
- * Separation of Concerns: toda lógica de fetch, cache e invalidação fica aqui.
+ * Toda lógica de fetch, cache e invalidação centralizada aqui.
  */
 
 import {
@@ -66,6 +66,14 @@ async function updateDevolucao(payload: UpdateDevolucaoPayload): Promise<void> {
   if (!json.success) throw new Error(json.error ?? 'Erro ao atualizar devolução');
 }
 
+async function deleteDevolucao(numeroNF: string): Promise<void> {
+  const res = await fetch(`/api/devolucoes/delete?numeroNF=${encodeURIComponent(numeroNF)}`, {
+    method: 'DELETE',
+  });
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error ?? 'Erro ao remover devolução');
+}
+
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useDashboard(
@@ -74,8 +82,8 @@ export function useDashboard(
   return useQuery({
     queryKey: queryKeys.dashboard,
     queryFn: fetchDashboard,
-    staleTime: 30_000, // 30s — revalida automaticamente
-    refetchInterval: 60_000, // polling a cada 60s para "live"
+    staleTime: 30_000,
+    refetchInterval: 60_000,
     ...options,
   });
 }
@@ -85,7 +93,7 @@ export function useDevolucoes(filters: DevolucaoFilters) {
     queryKey: queryKeys.devolucoes(filters),
     queryFn: () => fetchDevolucoes(filters),
     staleTime: 30_000,
-    placeholderData: (prev) => prev, // mantém dados anteriores durante refetch (UX suave)
+    placeholderData: (prev) => prev,
   });
 }
 
@@ -96,7 +104,6 @@ export function useCreateDevolucao() {
     mutationFn: createDevolucao,
     onSuccess: () => {
       toast.success('Devolução registrada com sucesso!');
-      // Invalida o dashboard e a lista para refetch imediato
       qc.invalidateQueries({ queryKey: queryKeys.dashboard });
       qc.invalidateQueries({ queryKey: ['devolucoes'] });
     },
@@ -118,6 +125,22 @@ export function useUpdateDevolucao() {
     },
     onError: (error: Error) => {
       toast.error(`Falha ao atualizar: ${error.message}`);
+    },
+  });
+}
+
+export function useDeleteDevolucao() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: deleteDevolucao,
+    onSuccess: (_, numeroNF) => {
+      toast.success(`NF ${numeroNF} removida com sucesso!`);
+      qc.invalidateQueries({ queryKey: queryKeys.dashboard });
+      qc.invalidateQueries({ queryKey: ['devolucoes'] });
+    },
+    onError: (error: Error) => {
+      toast.error(`Falha ao remover: ${error.message}`);
     },
   });
 }
