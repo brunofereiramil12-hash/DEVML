@@ -22,10 +22,10 @@ async function getSheetId(): Promise<number> {
   const sheet = res.data.sheets?.find(
     (s) => s.properties?.title === sheetName
   );
-  if (!sheet?.properties?.sheetId == null) {
+  if (!sheet || sheet.properties?.sheetId == null) {
     throw new Error(`Aba "${sheetName}" não encontrada`);
   }
-  return sheet.properties!.sheetId!;
+  return sheet.properties.sheetId;
 }
 
 export async function DELETE(req: NextRequest) {
@@ -46,8 +46,6 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    // rowIndex é 1-based, dados começam na linha 3 → linha real = rowIndex + 2
-    // API batchUpdate usa índice 0-based → subtrai 1
     const sheetRowIndex = existing.rowIndex + 2 - 1;
     const sheetId = await getSheetId();
     const sheets = getSheetsClient();
