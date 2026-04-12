@@ -1,8 +1,3 @@
-/**
- * React Query (TanStack Query) hooks
- * Toda lógica de fetch, cache e invalidação centralizada aqui.
- */
-
 import {
   useQuery,
   useMutation,
@@ -20,14 +15,10 @@ import type {
 } from '@/types';
 import { buildQueryString } from '@/lib/utils';
 
-// ─── Query Keys ───────────────────────────────────────────────────────────────
-
 export const queryKeys = {
   dashboard: ['dashboard'] as const,
   devolucoes: (filters: DevolucaoFilters) => ['devolucoes', filters] as const,
 };
-
-// ─── Fetchers ─────────────────────────────────────────────────────────────────
 
 async function fetchDashboard(): Promise<DashboardData> {
   const res = await fetch('/api/sheets/dashboard', { cache: 'no-store' });
@@ -66,15 +57,17 @@ async function updateDevolucao(payload: UpdateDevolucaoPayload): Promise<void> {
   if (!json.success) throw new Error(json.error ?? 'Erro ao atualizar devolução');
 }
 
-async function deleteDevolucao(numeroNF: string): Promise<void> {
-  const res = await fetch(`/api/devolucoes/delete?numeroNF=${encodeURIComponent(numeroNF)}`, {
-    method: 'DELETE',
-  });
+async function deleteDevolucao(row: { numeroNF: string; rowIndex: number }): Promise<void> {
+  let url: string;
+  if (row.numeroNF?.trim()) {
+    url = `/api/devolucoes/delete?numeroNF=${encodeURIComponent(row.numeroNF.trim())}`;
+  } else {
+    url = `/api/devolucoes/delete?rowIndex=${row.rowIndex}`;
+  }
+  const res = await fetch(url, { method: 'DELETE' });
   const json = await res.json();
   if (!json.success) throw new Error(json.error ?? 'Erro ao remover devolução');
 }
-
-// ─── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useDashboard(
   options?: Partial<UseQueryOptions<DashboardData>>
@@ -102,7 +95,6 @@ export function useDevolucoes(filters: DevolucaoFilters) {
 
 export function useCreateDevolucao() {
   const qc = useQueryClient();
-
   return useMutation({
     mutationFn: createDevolucao,
     onSuccess: () => {
@@ -118,7 +110,6 @@ export function useCreateDevolucao() {
 
 export function useUpdateDevolucao() {
   const qc = useQueryClient();
-
   return useMutation({
     mutationFn: updateDevolucao,
     onSuccess: () => {
@@ -134,11 +125,14 @@ export function useUpdateDevolucao() {
 
 export function useDeleteDevolucao() {
   const qc = useQueryClient();
-
   return useMutation({
     mutationFn: deleteDevolucao,
-    onSuccess: (_, numeroNF) => {
-      toast.success(`NF ${numeroNF} removida com sucesso!`);
+    onSuccess: (_, row) => {
+      toast.success(
+        row.numeroNF?.trim()
+          ? `NF ${row.numeroNF} removida com sucesso!`
+          : `Registro removido com sucesso!`
+      );
       qc.invalidateQueries({ queryKey: queryKeys.dashboard });
       qc.invalidateQueries({ queryKey: ['devolucoes'] });
     },
