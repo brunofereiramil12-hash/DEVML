@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { findRowByNF } from '@/lib/sheets';
+import { findRowByNF, getAllDevolucoes } from '@/lib/sheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,53 +28,69 @@ async function getSheetId(): Promise<number> {
   return sheet.properties.sheetId;
 }
 
+async function deleteRowByIndex(startIndex: number) {
+  const sheetId = await getSheetId();
+  const sheets = getSheetsClient();
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID!,
+    requestBody: {
+      requests: [
+        {
+          deleteDimension: {
+            range: {
+              sheetId,
+              dimension: 'ROWS',
+              startIndex,
+              endIndex: startIndex + 1,
+            },
+          },
+        },
+      ],
+    },
+  });
+}
+
 export async function DELETE(req: NextRequest) {
   try {
     const numeroNF = req.nextUrl.searchParams.get('numeroNF');
-    if (!numeroNF?.trim()) {
-      return NextResponse.json(
-        { success: false, error: 'Parâmetro numeroNF é obrigatório' },
-        { status: 400 }
-      );
+    const rowIndexParam = req.nextUrl.searchParams.get('rowIndex');
+
+    // Caso 1: tem numeroNF → busca pelo NF
+    if (numeroNF?.trim()) {
+      const existing = await findRowByNF(numeroNF.trim());
+      if (!existing) {
+        return NextResponse.json(
+          { success: false, error: `NF ${numeroNF} não encontrada` },
+          { status: 404 }
+        );
+      }
+      await deleteRowByIndex(existing.rowIndex + 1);
+      return NextResponse.json({
+        success: true,
+        message: `NF ${numeroNF} removida com sucesso`,
+      });
     }
 
-    const existing = await findRowByNF(numeroNF.trim());
-    if (!existing) {
-      return NextResponse.json(
-        { success: false, error: `NF ${numeroNF} não encontrada` },
-        { status: 404 }
-      );
+    // Caso 2: sem numeroNF → usa rowIndex direto
+    if (rowIndexParam) {
+      const rowIndex = parseInt(rowIndexParam, 10);
+      if (isNaN(rowIndex) || rowIndex < 1) {
+        return NextResponse.json(
+          { success: false, error: 'rowIndex inválido' },
+          { status: 400 }
+        );
+      }
+      await deleteRowByIndex(rowIndex + 1);
+      return NextResponse.json({
+        success: true,
+        message: `Linha ${rowIndex} removida com sucesso`,
+      });
     }
 
-    // rowIndex é 1-based, dados começam na linha 3 da planilha
-    // batchUpdate usa índice 0-based → startIndex = rowIndex + 1
-    const startIndex = existing.rowIndex + 1;
-
-    const sheetId = await getSheetId();
-    const sheets = getSheetsClient();
-
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID!,
-      requestBody: {
-        requests: [
-          {
-            deleteDimension: {
-              range: {
-                sheetId,
-                dimension: 'ROWS',
-                startIndex,
-                endIndex: startIndex + 1,
-              },
-            },
-          },
-        ],
-      },
-    });
-
-    return NextResponse.json({
-      success: true,
-      message: `NF ${numeroNF} removida com sucesso`,
-    });
+    return NextResponse.json(
+      { success: false, error: 'Informe numeroNF ou rowIndex' },
+      { status: 400 }
+    );
   } catch (error) {
     console.error('[DELETE /api/devolucoes/delete] Error:', error);
     return NextResponse.json(
