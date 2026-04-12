@@ -74,18 +74,10 @@ function ConfirmDeleteModal({ row, onConfirm, onCancel, isLoading }: ConfirmDele
           Esta ação removerá a linha da planilha e não pode ser desfeita.
         </p>
         <div className="flex items-center justify-end gap-3 pt-2">
-          <button
-            onClick={onCancel}
-            disabled={isLoading}
-            className="btn-secondary text-sm"
-          >
+          <button onClick={onCancel} disabled={isLoading} className="btn-secondary text-sm">
             Cancelar
           </button>
-          <button
-            onClick={onConfirm}
-            disabled={isLoading}
-            className="btn-primary bg-red-500 hover:bg-red-400 text-sm"
-          >
+          <button onClick={onConfirm} disabled={isLoading} className="btn-primary bg-red-500 hover:bg-red-400 text-sm">
             {isLoading ? 'Removendo...' : 'Confirmar'}
           </button>
         </div>
@@ -167,35 +159,17 @@ function Pagination({ page, totalPages, total, pageSize, onChange }: PaginationP
     <div className="flex items-center justify-between px-4 py-3 border-t border-[#1e2a3d] text-xs text-slate-500">
       <span>{total === 0 ? '0 registros' : `${start}–${end} de ${total}`}</span>
       <div className="flex items-center gap-1">
-        <button
-          className="p-1.5 rounded hover:bg-[#1e2a3d] disabled:opacity-30 transition"
-          onClick={() => onChange(1)}
-          disabled={page <= 1}
-        >
+        <button className="p-1.5 rounded hover:bg-[#1e2a3d] disabled:opacity-30 transition" onClick={() => onChange(1)} disabled={page <= 1}>
           <ChevronsLeft size={14} />
         </button>
-        <button
-          className="p-1.5 rounded hover:bg-[#1e2a3d] disabled:opacity-30 transition"
-          onClick={() => onChange(page - 1)}
-          disabled={page <= 1}
-        >
+        <button className="p-1.5 rounded hover:bg-[#1e2a3d] disabled:opacity-30 transition" onClick={() => onChange(page - 1)} disabled={page <= 1}>
           <ChevronLeft size={14} />
         </button>
-        <span className="px-2 text-slate-300">
-          {page} / {totalPages || 1}
-        </span>
-        <button
-          className="p-1.5 rounded hover:bg-[#1e2a3d] disabled:opacity-30 transition"
-          onClick={() => onChange(page + 1)}
-          disabled={page >= totalPages}
-        >
+        <span className="px-2 text-slate-300">{page} / {totalPages || 1}</span>
+        <button className="p-1.5 rounded hover:bg-[#1e2a3d] disabled:opacity-30 transition" onClick={() => onChange(page + 1)} disabled={page >= totalPages}>
           <ChevronRight size={14} />
         </button>
-        <button
-          className="p-1.5 rounded hover:bg-[#1e2a3d] disabled:opacity-30 transition"
-          onClick={() => onChange(totalPages)}
-          disabled={page >= totalPages}
-        >
+        <button className="p-1.5 rounded hover:bg-[#1e2a3d] disabled:opacity-30 transition" onClick={() => onChange(totalPages)} disabled={page >= totalPages}>
           <ChevronsRight size={14} />
         </button>
       </div>
@@ -230,10 +204,11 @@ export function DevolucoesTable() {
   const handleReset = useCallback(() => setFilters(DEFAULT_FILTERS), []);
 
   const handleConfirmDelete = () => {
-    if (!confirmRow?.numeroNF?.trim()) return;
-    deletar(confirmRow.numeroNF.trim(), {
-      onSettled: () => setConfirmRow(null),
-    });
+    if (!confirmRow) return;
+    deletar(
+      { numeroNF: confirmRow.numeroNF ?? '', rowIndex: confirmRow.rowIndex },
+      { onSettled: () => setConfirmRow(null) }
+    );
   };
 
   const rows = data?.data ?? [];
@@ -250,7 +225,6 @@ export function DevolucoesTable() {
           isLoading={isDeleting}
         />
       )}
-
       <div className="card animate-in stagger-4">
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
           <div className="flex items-center gap-2">
@@ -259,9 +233,7 @@ export function DevolucoesTable() {
               Registros
             </h3>
             {total > 0 && (
-              <span className="badge bg-sky-500/10 text-sky-400 border-sky-500/20">
-                {total}
-              </span>
+              <span className="badge bg-sky-500/10 text-sky-400 border-sky-500/20">{total}</span>
             )}
           </div>
           <button
@@ -284,10 +256,7 @@ export function DevolucoesTable() {
             <thead>
               <tr className="border-b border-[#1e2a3d]">
                 {COLUMNS.map((col) => (
-                  <th
-                    key={col.key}
-                    className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap"
-                  >
+                  <th key={col.key} className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">
                     {col.label}
                   </th>
                 ))}
