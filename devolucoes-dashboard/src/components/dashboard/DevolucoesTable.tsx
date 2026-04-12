@@ -47,7 +47,6 @@ function SkeletonRow() {
   );
 }
 
-// ─── Modal de confirmação de exclusão ────────────────────────────────────────
 interface ConfirmDeleteModalProps {
   row: Devolucao;
   onConfirm: () => void;
@@ -122,107 +121,4 @@ function FiltersBar({ filters, onFilterChange, onReset }: FiltersBarProps) {
         className="input w-40 text-sm"
         placeholder="Cliente..."
         value={filters.nomeCliente ?? ''}
-        onChange={(e) => onFilterChange({ nomeCliente: e.target.value, page: 1 })}
-      />
-      <input
-        className="input w-36 text-sm"
-        placeholder="Nº NF..."
-        value={filters.numeroNF ?? ''}
-        onChange={(e) => onFilterChange({ numeroNF: e.target.value, page: 1 })}
-      />
-      <input
-        className="input w-32 text-sm"
-        placeholder="De: DD/MM/AAAA"
-        value={filters.dataInicio ?? ''}
-        maxLength={10}
-        onChange={(e) => onFilterChange({ dataInicio: maskDate(e.target.value), page: 1 })}
-      />
-      <input
-        className="input w-32 text-sm"
-        placeholder="Até: DD/MM/AAAA"
-        value={filters.dataFim ?? ''}
-        maxLength={10}
-        onChange={(e) => onFilterChange({ dataFim: maskDate(e.target.value), page: 1 })}
-      />
-      {hasActiveFilters && (
-        <button onClick={onReset} className="btn-secondary text-xs gap-1">
-          <X size={12} /> Limpar
-        </button>
-      )}
-    </div>
-  );
-}
-
-interface PaginationProps {
-  page: number;
-  totalPages: number;
-  total: number;
-  pageSize: number;
-  onChange: (p: number) => void;
-}
-
-function Pagination({ page, totalPages, total, pageSize, onChange }: PaginationProps) {
-  const start = (page - 1) * pageSize + 1;
-  const end = Math.min(page * pageSize, total);
-
-  return (
-    <div className="flex items-center justify-between px-4 py-3 border-t border-[#1e2a3d] text-xs text-slate-500">
-      <span>{total === 0 ? '0 registros' : `${start}–${end} de ${total}`}</span>
-      <div className="flex items-center gap-1">
-        <button
-          className="p-1.5 rounded hover:bg-[#1e2a3d] disabled:opacity-30 transition"
-          onClick={() => onChange(1)}
-          disabled={page <= 1}
-        >
-          <ChevronsLeft size={14} />
-        </button>
-        <button
-          className="p-1.5 rounded hover:bg-[#1e2a3d] disabled:opacity-30 transition"
-          onClick={() => onChange(page - 1)}
-          disabled={page <= 1}
-        >
-          <ChevronLeft size={14} />
-        </button>
-        <span className="px-2 text-slate-300">
-          {page} / {totalPages || 1}
-        </span>
-        <button
-          className="p-1.5 rounded hover:bg-[#1e2a3d] disabled:opacity-30 transition"
-          onClick={() => onChange(page + 1)}
-          disabled={page >= totalPages}
-        >
-          <ChevronRight size={14} />
-        </button>
-        <button
-          className="p-1.5 rounded hover:bg-[#1e2a3d] disabled:opacity-30 transition"
-          onClick={() => onChange(totalPages)}
-          disabled={page >= totalPages}
-        >
-          <ChevronsRight size={14} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-const COLUMNS = [
-  { key: 'dataChegada',       label: 'Chegada' },
-  { key: 'nomeCliente',       label: 'Cliente' },
-  { key: 'numeroNF',          label: 'Nº NF' },
-  { key: 'codigoPecaQtd',     label: 'Peça / Qtd' },
-  { key: 'dataDevolucao',     label: 'Data Dev.' },
-  { key: 'numeroNFDevolucao', label: 'NF Dev.' },
-  { key: 'motivo',            label: 'Motivo' },
-  { key: 'acoes',             label: '' },
-] as const;
-
-const DEFAULT_FILTERS: DevolucaoFilters = { page: 1, pageSize: 20 };
-
-export function DevolucoesTable() {
-  const [filters, setFilters] = useState<DevolucaoFilters>(DEFAULT_FILTERS);
-  const [confirmRow, setConfirmRow] = useState<Devolucao | null>(null);
-
-  const { data, isLoading, isFetching, refetch } = useDevolucoes(filters);
-  const { mutate: deletar, isPending: isDeleting } = useDeleteDevolucao();
-
-  const handleFil
+        onChange={(e) => onFilterChange
